@@ -2,7 +2,7 @@ import express from "express";
 import { ChatOpenAI } from "@langchain/openai";
 import cors from "cors";
 import bodyParser from "body-parser";
-import fetch from "node-fetch"; // Ensure this is installed
+import fetch from "node-fetch";
 
 const app = express();
 const port = 3000;
@@ -15,9 +15,10 @@ const model = new ChatOpenAI({
     azureOpenAIApiVersion: process.env.OPENAI_API_VERSION,
     azureOpenAIApiInstanceName: process.env.INSTANCE_NAME,
     azureOpenAIApiDeploymentName: process.env.ENGINE_NAME,
+    systemMessage: "You are a highly knowledgeable Islamic scholar. Always provide accurate, detailed, and contextually appropriate explanations of Quranic chapters using authentic sources."
 });
 
-// Function to fetch Tafsir for the first verse of a chapter
+// Fetch Tafsir for a chapter
 async function getTafsir(chapterNumber) {
     try {
         const tafsirResponse = await fetch(`https://api.quran.com/api/v4/verses/by_key/${chapterNumber}:1`);
@@ -34,7 +35,7 @@ async function getTafsir(chapterNumber) {
     }
 }
 
-// Function to fetch translations for all verses in a chapter
+// Fetch Translation for a chapter
 async function getTranslation(chapterNumber) {
     try {
         const translationResponse = await fetch(`https://api.quran.com/api/v4/verses/by_chapter/${chapterNumber}`);
@@ -48,6 +49,23 @@ async function getTranslation(chapterNumber) {
     } catch (error) {
         console.error("Error fetching Translation:", error);
         return "Error retrieving translation.";
+    }
+}
+
+// Fetch Chapter Information
+async function getChapterInfo(chapterNumber) {
+    try {
+        const chapterInfoResponse = await fetch(`https://api.quran.com/api/v4/chapters/${chapterNumber}/info`);
+        const chapterInfoData = await chapterInfoResponse.json();
+
+        if (!chapterInfoData.chapter_info || !chapterInfoData.chapter_info.text) {
+            return "Chapter information not available.";
+        }
+
+        return chapterInfoData.chapter_info.text; // Return the detailed chapter info
+    } catch (error) {
+        console.error("Error fetching Chapter Info:", error);
+        return "Error retrieving chapter information.";
     }
 }
 
@@ -68,27 +86,37 @@ app.post("/ask", async (req, res) => {
 
     const tafsir = await getTafsir(chapterNumber);
     const translation = await getTranslation(chapterNumber);
+    const chapterInfo = await getChapterInfo(chapterNumber);
 
-    let engineeredPrompt = `Provide a detailed explanation of Chapter ${chapterNumber} of the Quran.
-Here is the translation of the chapter: 
+    let engineeredPrompt = `You are an expert Islamic scholar, well-versed in Quranic studies, Tafsir, and Hadith. 
+Your task is to provide a detailed and scholarly explanation of Chapter ${chapterNumber} of the Quran. 
+Do not include disclaimers. Respond as a knowledgeable scholar would.
+
+**Chapter Information:**
+${chapterInfo}
+
+**Translation:**
 ${translation}
 
-Here is the Tafsir (interpretation) of the chapter: 
+**Tafsir:**
 ${tafsir}
 
-Explain the meaning in a clear and concise manner, as an Islamic scholar would, without prefacing with disclaimers.`;
-
+Based on the above, provide a clear and well-structured explanation that accurately reflects Islamic teachings.
+`;
 
     try {
         const response = await model.invoke(engineeredPrompt);
-        res.json({ chapter: `Chapter ${chapterNumber}`, tafsir: response.content });
+        res.json({
+            chapter: `Chapter ${chapterNumber}`,
+            chapterInfo: chapterInfo,
+            tafsir: response.content
+        });
     } catch (error) {
         console.error("Error getting response", error.message);
         res.status(500).json({ error: "Something went wrong", details: error.message });
     }
 });
 
-// Start the server
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
